@@ -234,7 +234,7 @@ This routes all traffic to the VPS, where Nginx reverse proxy forwards requests 
 ### Step 3: Configure Nginx Reverse Proxy (via aaPanel)
 
 Using aaPanel's Website feature:
-- Add site `vinai-day12.thanhnn.dev` (PHP: Pure Static)
+- Add site `vinai-day12.thanhnn.dev`
 - Apply Let's Encrypt SSL certificate (auto via aaPanel)
 - Set reverse proxy to `http://127.0.0.1:18001`
 - Enable Force HTTPS redirect
