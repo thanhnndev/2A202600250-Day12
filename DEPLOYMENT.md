@@ -159,8 +159,8 @@ curl -X POST https://vinai-day12.thanhnn.dev/ask \
 ssh user@your-vps-ip
 
 # Clone repository
-git clone https://github.com/your-username/day12-agent.git
-cd day12-agent/api-wrapper
+git clone https://github.com/thanhnndev/2A202600250-Day12.git
+cd 2A202600250-Day12/api-wrapper
 
 # Create .env from template
 cp .env.example .env
