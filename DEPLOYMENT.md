@@ -304,15 +304,34 @@ The deployment is managed via aaPanel control panel on the Ubuntu VPS (MegaHost.
 
 ## Screenshots
 
-> **Note:** This is a VPS (self-hosted) deployment. Screenshots should be captured from:
->
-> 1. **`screenshots/nginx-config.png`** — Nginx configuration showing reverse proxy setup
-> 2. **`screenshots/docker-ps.png`** — Docker Compose showing all services running
-> 3. **`screenshots/health-check.png`** — curl health check returning 200 OK
-> 4. **`screenshots/api-test.png`** — Successful API call with authentication
-> 5. **`screenshots/rate-limit.png`** — Rate limiting test showing 429 response
-> 6. **`screenshots/ssl-cert.png`** — Browser showing valid Let's Encrypt SSL certificate
-> 7. **`screenshots/certbot-status.png`** — Certbot certificate status and auto-renewal
+All screenshots are in the ` screenshots/` directory.
+
+| # | File | Description |
+|---|------|-------------|
+| 1 | `docker-ps.png` | Docker Compose showing api-wrapper, findmypath, and redis all running (Up healthy) |
+| 2 | `health-check.png` | `curl https://vinai-day12.thanhnn.dev/health` returning 200 OK with status "ok" |
+| 3 | `api-test.png` | POST `/ask` with valid X-API-Key returning 200 OK with agent response |
+| 4 | `rate-limit.png` | 15 rapid requests showing first 10 return 200, requests 11+ return 429 Too Many Requests |
+| 5 | `ssl-cert.png` | Browser showing valid Let's Encrypt SSL certificate for vinai-day12.thanhnn.dev |
+| 6 | `dashboard.png` | aaPanel control panel dashboard showing website configuration and server monitoring |
+| 7 | `github-actions.png` | GitHub Actions CI/CD workflows all passing (lint, test, docker-build, security-scan, deploy) |
+
+### Screenshots Directory
+
+```
+ screenshots/
+├── docker-ps.png
+├── health-check.png
+├── api-test.png
+├── rate-limit.png
+├── ssl-cert.png
+├── dashboard.png
+└── github-actions.png
+```
+
+### Verification
+
+All 7 screenshots captured on 17/04/2026 confirming the deployment is live and all features working.
 
 ---
 
