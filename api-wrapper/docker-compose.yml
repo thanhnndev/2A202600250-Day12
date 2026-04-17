@@ -1,0 +1,63 @@
+services:
+  api-wrapper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "18001:18001"
+    environment:
+      - PORT=18001
+      - AGENT_API_KEY=${AGENT_API_KEY:-sk-mock-day12-key-2026}
+      - BACKEND_URL=${BACKEND_URL:-http://findmypath:18000}
+      - REDIS_URL=redis://redis:6379/0
+      - RATE_LIMIT_REQUESTS=10
+      - RATE_LIMIT_WINDOW=60
+      - COST_LIMIT_USD=10.0
+      - COST_PER_REQUEST=0.05
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  findmypath:
+    build:
+      context: ../findmypath-agents
+      dockerfile: Dockerfile
+    ports:
+      - "18000:18000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4-turbo-preview}
+      - PDF_OUTPUT_DIR=./output/pdfs
+      - TEMPLATE_DIR=./src/templates
+    volumes:
+      - pdf-output:/app/output/pdfs
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - app-network
+
+volumes:
+  redis-data:
+  pdf-output:
+
+networks:
+  app-network:
+    driver: bridge
