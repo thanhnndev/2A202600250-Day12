@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  smartapply-agents:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: smartapply-agents
+    ports:
+      - "18000:18000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4-turbo-preview}
+      - GO_BACKEND_URL=${GO_BACKEND_URL:-http://host.docker.internal:8080}
+      - PDF_OUTPUT_DIR=/app/output/pdfs
+      - MAX_STEPS=10
+    volumes:
+      - ./output:/app/output
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:18000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - pathcan_network
+
+networks:
+  pathcan_network:
+    external: true
+    name: pathcan-academy-go-server_pathcan_network
