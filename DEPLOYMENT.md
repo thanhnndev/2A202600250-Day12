@@ -125,21 +125,34 @@ curl -X POST https://vinai-day12.thanhnn.dev/ask \
 
 ---
 
-## Environment Variables Set
+## Configuration (.env.example)
+
+All configuration is managed via `.env` file on the VPS, based on the `.env.example` template committed in the repository. Each service has its own set of environment variables.
+
+### API Wrapper (Port 18001) — Security Gateway
 
 | Variable              | Value (example)                    | Purpose                            |
 |-----------------------|------------------------------------|------------------------------------|
 | `PORT`                | `18001`                            | API Wrapper listen port            |
+| `AGENT_API_KEY`       | *(set, not disclosed)*             | API key for client authentication  |
 | `REDIS_URL`           | `redis://redis:6379/0`             | Redis connection for rate limiting |
-| `AGENT_API_KEY`       | *(set, not disclosed)*             | API key for authentication         |
-| `LOG_LEVEL`           | `info`                             | Application logging verbosity      |
 | `BACKEND_URL`         | `http://findmypath:18000`          | Internal backend service URL       |
 | `RATE_LIMIT_REQUESTS` | `10`                               | Max requests per window            |
 | `RATE_LIMIT_WINDOW`   | `60`                               | Rate limit window (seconds)        |
 | `COST_LIMIT_USD`      | `10.0`                             | Monthly cost cap                   |
 | `COST_PER_REQUEST`    | `0.05`                             | Estimated cost per request         |
-| `OPENAI_API_KEY`      | *(set, not disclosed)*             | Backend LLM provider key           |
-| `OPENAI_MODEL`        | `gpt-4-turbo-preview`              | Default LLM model                  |
+| `LOG_LEVEL`           | `info`                             | Application logging verbosity      |
+
+### Backend Agent (Port 18000) — FindMyPath LangGraph
+
+| Variable            | Value (example)                    | Purpose                            |
+|---------------------|------------------------------------|------------------------------------|
+| `OPENAI_API_KEY`    | *(set, not disclosed)*             | OpenAI API key for LLM calls       |
+| `OPENAI_MODEL`      | `gpt-4-turbo-preview`              | Default LLM model                  |
+| `PDF_OUTPUT_DIR`    | `./output/pdfs`                    | Generated PDF storage path         |
+| `TEMPLATE_DIR`      | `./src/templates`                  | Document template directory        |
+
+> **Note:** The API Wrapper does NOT need `OPENAI_API_KEY` — it only handles auth, rate limiting, and proxying. The Backend Agent does NOT need `AGENT_API_KEY` — authentication is handled by the gateway layer.
 
 ---
 
@@ -164,8 +177,28 @@ cd 2A202600250-Day12/api-wrapper
 
 # Create .env from template
 cp .env.example .env
-nano .env  # Fill in AGENT_API_KEY, OPENAI_API_KEY, etc.
+nano .env
 ```
+
+Fill in the `.env` file — it must contain **both** service configurations since `docker-compose.yml` reads from this single file and distributes variables to each container:
+
+```env
+# ── API Wrapper ──
+AGENT_API_KEY=sk-your-secret-key-here
+REDIS_URL=redis://redis:6379/0
+BACKEND_URL=http://findmypath:18000
+RATE_LIMIT_REQUESTS=10
+RATE_LIMIT_WINDOW=60
+COST_LIMIT_USD=10.0
+COST_PER_REQUEST=0.05
+LOG_LEVEL=info
+
+# ── Backend Agent ──
+OPENAI_API_KEY=sk-proj-your-openai-key-here
+OPENAI_MODEL=gpt-4-turbo-preview
+```
+
+> **Important:** `AGENT_API_KEY` and `OPENAI_API_KEY` are separate. The wrapper uses `AGENT_API_KEY` to authenticate clients. The agent uses `OPENAI_API_KEY` to call OpenAI. They are NOT interchangeable.
 
 ### Step 2: Start Services with Docker Compose
 
@@ -188,44 +221,25 @@ api-wrapper-findmypath-1    Up
 api-wrapper-redis-1         Up (healthy)
 ```
 
-### Step 3: Configure aaPanel Reverse Proxy
+### Step 2.5: DNS Configuration
 
-Using aaPanel control panel:
+The domain `vinai-day12.thanhnn.dev` is pointed to the VPS IP via an **A record** in the DNS provider:
 
-1. **Add Website** — In aaPanel → Website → Add Site:
-   - Domain: `vinai-day12.thanhnn.dev`
-   - Root directory: default (not used for reverse proxy)
-   - PHP version: Pure Static (no PHP needed)
+| Type | Name | Value | TTL |
+|------|------|-------|-----|
+| A    | vinai-day12 | [VPS_IP] | Auto |
 
-2. **Apply SSL Certificate** — In aaPanel → Website → vinai-day12.thanhnn.dev → SSL:
-   - Select "Let's Encrypt"
-   - Click "Apply" to auto-generate and install certificate
-   - Enable "Force HTTPS" redirect
+This routes all traffic to the VPS, where Nginx reverse proxy forwards requests to the API Wrapper container on port 18001.
 
-3. **Set Reverse Proxy** — In aaPanel → Website → vinai-day12.thanhnn.dev → Reverse Proxy:
-   - Proxy name: `api-wrapper`
-   - Target URL: `http://127.0.0.1:18001`
-   - Enable proxy and save
+### Step 3: Configure Nginx Reverse Proxy (via aaPanel)
 
-### Step 4: SSL Certificate (Let's Encrypt)
+Using aaPanel's Website feature:
+- Add site `vinai-day12.thanhnn.dev` (PHP: Pure Static)
+- Apply Let's Encrypt SSL certificate (auto via aaPanel)
+- Set reverse proxy to `http://127.0.0.1:18001`
+- Enable Force HTTPS redirect
 
-```bash
-# Obtain certificate
-sudo certbot certonly --webroot \
-  -w /var/www/certbot \
-  -d vinai-day12.thanhnn.dev \
-  --email your-email@example.com \
-  --agree-tos \
-  --non-interactive
-
-# Verify certificate
-sudo certbot certificates
-
-# Set up auto-renewal (usually pre-configured)
-sudo systemctl status certbot.timer
-```
-
-### Step 5: Verify Deployment
+### Step 4: Verify Deployment
 
 ```bash
 # Test health endpoint
@@ -265,13 +279,7 @@ docker compose down && docker compose up -d --build
 
 ### SSL Renewal
 
-```bash
-# Dry-run test
-sudo certbot renew --dry-run
-
-# Manual renewal
-sudo certbot renew && sudo systemctl reload nginx
-```
+SSL renewal is auto-managed by aaPanel's Let's Encrypt integration.
 
 ### Monitoring
 
@@ -290,13 +298,7 @@ docker compose exec redis redis-cli info clients
 
 ## aaPanel Management
 
-Deployment is managed through aaPanel control panel:
-
-- **Website** — Reverse proxy configuration for vinai-day12.thanhnn.dev
-- **SSL** — Auto-applied Let's Encrypt certificate via aaPanel
-- **Docker** — Docker Compose managed via SSH terminal in aaPanel
-- **Monitor** — CPU, memory, disk, and network monitoring via aaPanel dashboard
-- **Firewall** — Port management via aaPanel Security section
+The deployment is managed via aaPanel control panel on the Ubuntu VPS (MegaHost.vn), which handles Nginx reverse proxy configuration, Let's Encrypt SSL certificates, firewall rules, and server monitoring through a web-based dashboard.
 
 ---
 
