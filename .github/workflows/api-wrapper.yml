@@ -1,20 +1,20 @@
-name: FindMyPath Agents - CI/CD
+name: API Wrapper - CI/CD
 
 on:
   push:
     branches: [main, gsd]
     paths:
-      - "findmypath-agents/**"
-      - ".github/workflows/findmypath-agents.yml"
+      - "api-wrapper/**"
+      - ".github/workflows/api-wrapper.yml"
   pull_request:
     branches: [main, gsd]
     paths:
-      - "findmypath-agents/**"
-      - ".github/workflows/findmypath-agents.yml"
+      - "api-wrapper/**"
+      - ".github/workflows/api-wrapper.yml"
 
 env:
-  WORKING_DIRECTORY: ./findmypath-agents
-  IMAGE_NAME: findmypath-agents
+  WORKING_DIRECTORY: ./api-wrapper
+  IMAGE_NAME: api-wrapper
   MAX_IMAGE_SIZE_MB: 500
 
 jobs:
@@ -39,7 +39,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: "pip"
-          cache-dependency-path: findmypath-agents/requirements.txt
+          cache-dependency-path: api-wrapper/requirements.txt
 
       - name: Install dependencies
         run: |
@@ -49,12 +49,12 @@ jobs:
 
       - name: Run flake8
         run: |
-          flake8 src/ tests/ --count --select=E9,F63,F7,F82 --show-source --statistics \
+          flake8 app/ --count --select=E9,F63,F7,F82 --show-source --statistics \
             --extend-ignore=E501
 
       - name: Check formatting with black
         run: |
-          black --check src/ tests/ || true
+          black --check app/ || true
 
   # ── Unit Tests ─────────────────────────────────────────────────────────────
   test:
@@ -69,12 +69,14 @@ jobs:
         working-directory: ${{ env.WORKING_DIRECTORY }}
 
     env:
-      OPENAI_API_KEY: sk-fake-key-for-ci-testing
-      OPENAI_MODEL: gpt-4-turbo-preview
-      GO_BACKEND_URL: http://localhost:8080
-      MAX_STEPS: 10
-      PDF_OUTPUT_DIR: ./output/pdfs
-      TEMPLATE_DIR: ./src/templates
+      AGENT_API_KEY: sk-mock-key-for-ci-testing
+      BACKEND_URL: http://localhost:18000
+      REDIS_URL: redis://localhost:6379/0
+      RATE_LIMIT_REQUESTS: 10
+      RATE_LIMIT_WINDOW: 60
+      COST_LIMIT_USD: 10.0
+      COST_PER_REQUEST: 0.05
+      PORT: 18001
 
     steps:
       - name: Checkout repository
@@ -85,31 +87,38 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: "pip"
-          cache-dependency-path: findmypath-agents/requirements.txt
+          cache-dependency-path: api-wrapper/requirements.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install pytest pytest-cov httpx
 
-      - name: Create output directories
-        run: mkdir -p output/pdfs
+      - name: Start Redis for tests
+        uses: supercharge/redis-github-action@1.8.0
+        with:
+          redis-version: 7
 
       - name: Run tests with coverage
         run: |
-          pytest tests/ -v --tb=short \
-            --cov=src \
-            --cov-report=xml \
-            --cov-report=term-missing \
-            -x \
-            -W ignore::DeprecationWarning \
-            -W ignore::pytest.PytestReturnNotNoneWarning
+          if [ -d "tests" ]; then
+            pytest tests/ -v --tb=short \
+              --cov=app \
+              --cov-report=xml \
+              --cov-report=term-missing \
+              -x \
+              -W ignore::DeprecationWarning
+          else
+            echo "⚠️ No tests directory found — running import smoke test"
+            python -c "from app.main import app; print('✅ App imports successfully')"
+          fi
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: coverage-report-py${{ matrix.python-version }}
+          name: api-wrapper-coverage-py${{ matrix.python-version }}
           path: ${{ env.WORKING_DIRECTORY }}/coverage.xml
           retention-days: 7
 
@@ -151,11 +160,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker image (production)
+      - name: Build Docker image
         uses: docker/build-push-action@v6
         with:
           context: ${{ env.WORKING_DIRECTORY }}
-          file: ${{ env.WORKING_DIRECTORY }}/Dockerfile.prod
+          file: ${{ env.WORKING_DIRECTORY }}/Dockerfile
           push: false
           load: true
           tags: ${{ env.IMAGE_NAME }}:ci
@@ -198,33 +207,33 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: docker-size-report
+          name: api-wrapper-docker-size-report
           path: docker-size-report.md
           retention-days: 30
 
       - name: Smoke test — container starts
         run: |
           docker run --rm -d \
-            --name agents-smoke-test \
-            -e OPENAI_API_KEY=sk-fake-key \
-            -e GO_BACKEND_URL=http://localhost:8080 \
-            -p 18000:18000 \
-            ${{ env.IMAGE_NAME }}:ci \
-            uvicorn src.main:app --host 0.0.0.0 --port 18000
+            --name wrapper-smoke-test \
+            -e AGENT_API_KEY=sk-mock-key \
+            -e BACKEND_URL=http://localhost:18000 \
+            -e REDIS_URL=redis://host.docker.internal:6379/0 \
+            -p 18001:18001 \
+            ${{ env.IMAGE_NAME }}:ci
 
           echo "Waiting for service to start..."
           for i in $(seq 1 15); do
-            if curl -sf http://localhost:18000/health > /dev/null 2>&1; then
+            if curl -sf http://localhost:18001/health > /dev/null 2>&1; then
               echo "✅ Health check passed"
-              docker stop agents-smoke-test
+              docker stop wrapper-smoke-test
               exit 0
             fi
             sleep 2
           done
 
           echo "❌ Health check failed after 30s"
-          docker logs agents-smoke-test
-          docker stop agents-smoke-test || true
+          docker logs wrapper-smoke-test
+          docker stop wrapper-smoke-test || true
           exit 1
 
   # ── Security Scan (Docker Image) ───────────────────────────────────────────
@@ -244,7 +253,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ${{ env.WORKING_DIRECTORY }}
-          file: ${{ env.WORKING_DIRECTORY }}/Dockerfile.prod
+          file: ${{ env.WORKING_DIRECTORY }}/Dockerfile
           push: false
           load: true
           tags: ${{ env.IMAGE_NAME }}:scan
@@ -292,10 +301,10 @@ jobs:
         run: |
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no ${VPS_USER}@${VPS_HOST} << 'EOF'
             set -e
-            echo "🚀 Deploying FindMyPath Agents..."
+            echo "🚀 Deploying API Wrapper..."
 
             # Navigate to project directory
-            cd ~/findmypath-agents || { echo "Directory not found"; exit 1; }
+            cd ~/api-wrapper || { echo "Directory not found"; exit 1; }
 
             # Pull latest changes
             git pull origin main
@@ -309,7 +318,7 @@ jobs:
             # Health check
             echo "Waiting for service to become healthy..."
             for i in $(seq 1 30); do
-              if curl -sf http://localhost:18000/health > /dev/null 2>&1; then
+              if curl -sf http://localhost:18001/health > /dev/null 2>&1; then
                 echo "✅ Deployment successful — health check passed"
                 exit 0
               fi
